@@ -1,0 +1,16 @@
+# Shared event-property vocabulary. A property used on any event must exist here.
+# Adding a name is a deliberate vocabulary change, visible in the PR diff. Prefer reusing one.
+synonyms:
+  # banned name: canonical name
+  placement: entry_point
+  came_from: entry_point
+  character_count: char_count
+  file_format: file_type
+properties:
+  status: { type: string, example: success | failed, description: Outcome of the action. Add cancelled where the user stopped it. }
+  failure_reason: { type: string, example: null | validation | server_error, description: Observed reason; null on success. Always paired with status. }
+  entry_point: { type: string, example: header | empty_state, description: Which door the action came through. }
+  duration_ms: { type: numeric, example: '1240', description: System latency. Say the span in the event description. }
+  char_count: { type: numeric, example: '312', description: Length of user text. Never send the text itself. }
+  result_count: { type: numeric, example: '24', description: Rows shown after a search or filter settles. }
+  platform: { type: string, example: web | ios | android }

@@ -1,0 +1,14 @@
+Copyright (c) 2026 Datalyze. All rights reserved.
+
+This software is proprietary. You may run it only in a GitHub repository linked
+to a Datalyze workspace with an active Tracking Agent subscription, and only
+for as long as that subscription is active, under the terms you accepted when
+subscribing at https://www.joindatalyze.com.
+
+You may not copy, modify, redistribute, sublicense, decompile or reverse
+engineer it, or use it to build a competing product, except as the law
+permits despite this restriction.
+
+The software is provided "as is", without warranty of any kind. Third-party
+components bundled in dist/ keep their own licences, listed in
+dist/index.js.LEGAL.txt.

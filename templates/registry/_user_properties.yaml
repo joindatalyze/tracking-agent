@@ -1,0 +1,12 @@
+# User (profile) properties. Each one stays on the profile until changed, so a property
+# that stops being written goes stale: deprecate it rather than just removing the call.
+properties: []
+#  - name: plan_tier
+#    type: string
+#    example: free | pro | team
+#    operation: set            # set | set_once | increment | append | unset
+#    set_via: server
+#    set_when: Plan purchase or change succeeds, and on login
+#    source: accounts.plan_tier
+#    question: Which plan are active users on, and how does usage differ by plan?
+#    status: planned

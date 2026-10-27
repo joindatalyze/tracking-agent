@@ -1,0 +1,13 @@
+# Tracking conventions. Merged over the Datalyze defaults, so only write what differs.
+# Changing this file changes the rules for everyone: route it to the analytics owner (CODEOWNERS).
+
+naming:
+  # Event names: snake_case object_action, e.g. post_created, sign_up, checkout_started.
+  event_pattern: '^[a-z][a-z0-9]*(_[a-z0-9]+)+$'
+  past_tense: off            # off | warn | error
+
+track_via: [client, server]  # where an event or user property is sent from
+
+budget:
+  new_events_per_pr: 5       # more than this in one PR needs a written reason per event
+

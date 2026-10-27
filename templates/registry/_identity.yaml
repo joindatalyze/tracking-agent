@@ -1,0 +1,10 @@
+# When the product links events to a known user, and when it forgets them.
+# The install audit fills this in from the code; `datalyze scan` checks it against the code.
+# Write `null` for something the product deliberately doesn't do (`reset: null` when there is no logout).
+#
+# identify:
+#   when: Sign-up completes and every login
+#   id_source: users.id          # never an email or phone number
+# reset:
+#   when: Logout
+{}

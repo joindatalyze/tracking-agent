@@ -1,0 +1,6 @@
+# Properties attached to every event once registered.
+properties: []
+#  - name: app_version
+#    type: string
+#    example: 4.12.0
+#    set_when: App start

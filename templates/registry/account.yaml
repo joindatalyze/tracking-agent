@@ -1,0 +1,15 @@
+# One file per area of the product, so teams rarely edit the same file.
+events: []
+#  - name: post_created
+#    section: Posts
+#    description: >-
+#      A post is saved by the backend after the user clicks Publish. Fires once on the server
+#      when the row is created, not when the editor closes.
+#    question: How many posts do users publish each week, and from which entry point?
+#    track_via: server
+#    status: planned
+#    properties:
+#      - { name: post_id, type: string, example: 5b48c62e-5484-4225-95d5-570d4cb45992 }
+#      - { name: entry_point, type: string, example: editor | quick_post }
+#      - { name: status, type: string, example: success | failed }
+#      - { name: failure_reason, type: string, example: null | validation | server_error }

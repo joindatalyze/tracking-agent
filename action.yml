@@ -1,0 +1,29 @@
+name: Datalyze Tracking Agent
+description: Checks every pull request's effect on tracking, with your own model and keys. Posts datalyze/tracking and datalyze/rules.
+author: Datalyze
+branding:
+  icon: activity
+  color: purple
+
+inputs:
+  job:
+    description: "tracking (the agent on a PR: proposal, then implementation and verification once a reviewer approves on GitHub, then green once someone approves the verified commit), rules (scripts only, no model), sync-sheet (rebuild the Google Sheet from the registry), audit (the default branch against the analytics data, pushed to datalyze/audit) or fix (fix PRs for audit findings)"
+    required: false
+    default: tracking
+  working-directory:
+    description: The repository checkout to run in.
+    required: false
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        git config --global --add safe.directory "$PWD"
+        node "$GITHUB_ACTION_PATH/dist/index.js" action --job "${{ inputs.job }}"

@@ -1,0 +1,143 @@
+# Datalyze Tracking Agent. Written by `datalyze workflow` (or browser setup); yours to edit.
+# Two statuses: datalyze/rules (scripts only, every push, no model) and datalyze/tracking (the agent).
+# Make both required checks on your default branch.
+#
+# Secrets (in this repo or your organisation):
+#   DATALYZE_KEY                  your workspace's Tracking Agent key (the only thing sent to Datalyze;
+#                                 also signs the proposals of fix PRs)
+__MODEL_SECRET_DOC__#   DATALYZE_SHEET_URL            the Google Sheet (optional): the template's receiver URL and token
+#   DATALYZE_SHEET_TOKEN
+#
+# No GitHub App secret: each run proves which repo it is with GitHub's OIDC token (id-token: write)
+# and gets a short-lived token of the Datalyze GitHub App for this repo only, so your CI runs on
+# Datalyze's commits. Without it (an unpaid workspace, or the App not installed) the default token is used.
+#
+# In .datalyze/config.yaml, set `install` (e.g. `install: npm ci`): verification installs the PR's own
+# dependencies rather than whatever this job's checkout has.
+#
+# Approving is GitHub's own PR review: an Approve on the proposal commit starts the implementation,
+# and an Approve on the verified commit turns datalyze/tracking green. A PR's author approves with
+# the label `datalyze:approve` (GitHub refuses an author's own review). Each approval counts for the
+# commit it was given on. A review runs the PR's own copy of this file, so CODEOWNERS on /.github/
+# with a required code-owner review is what stops a PR from editing it to fake its checks.
+#
+# Statuses aren't written back after a merge: each check works them out from a scan of the code.
+# The Google Sheet: every push to the default branch rebuilds it from the registry (job "sheet").
+# By hand (Actions > Datalyze > Run workflow, or from the Datalyze review UI): an audit of the
+# default branch against your analytics data (pushed to the branch datalyze/audit), and fix PRs for
+# the findings you pick. A failed sync or audit fails that run only; it never blocks a PR.
+
+name: Datalyze
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  pull_request_review:
+    types: [submitted]
+  # After a merge: the Sheet is rebuilt (job "sheet"). If your default branch has another name, put it here.
+  push:
+    branches: [__DEFAULT_BRANCH__]
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "What to run: initial-audit (your first tracking plan, as a PR), tracking (the PR check on one PR again: Retry), audit (the default branch against your analytics data), fix (fix PRs for audit findings) or sync-sheet (rebuild the Sheet)"
+        type: choice
+        options: [initial-audit, tracking, audit, fix, sync-sheet]
+        default: tracking
+      pr:
+        description: Pull request number (for tracking)
+        required: false
+      items:
+        description: Audit findings to fix, comma-separated finding ids (f1,f3) or item names (for fix)
+        required: false
+      audit:
+        description: The generated_at of the audit the findings were picked from (for fix; optional)
+        required: false
+
+permissions:
+  contents: write        # push the agent's commit to the PR branch
+  statuses: write        # datalyze/tracking, datalyze/rules
+  pull-requests: write
+  issues: write          # PR comments and labels
+  id-token: write        # the Datalyze App's token for this repo, and Bedrock / Vertex through OIDC
+  actions: read          # when a run was queued, to spot an approval label whose run GitHub cancelled
+
+jobs:
+  rules:
+    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: __DATALYZE_ACTION__
+        with:
+          job: rules
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATALYZE_KEY: ${{ secrets.DATALYZE_KEY }}
+
+  tracking:
+    # Runs on pushes, on an Approve review, on the datalyze:approve label, and on Retry. The same job
+    # runs the first audit, the audit and fix PRs (by hand), because they need the same access.
+    if: >-
+      (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'datalyze:approve')) ||
+      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || (inputs.job == 'tracking' && inputs.pr != '')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # One run per PR at a time; runs are idempotent, so a queued run picks up where the last one left
+    # off. The first audit, the audit and fix runs have a group each.
+    concurrency:
+      group: datalyze-tracking-${{ github.event.pull_request.number || inputs.pr || inputs.job }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # The agent pushes with your App's token; a persisted default token would be sent instead.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The verified method bundle, so a run still works if Datalyze can't be reached.
+      - uses: actions/cache@v4
+        with:
+          path: .datalyze/cache
+          key: datalyze-method-${{ github.run_id }}
+          restore-keys: datalyze-method-
+
+__MODEL_ACCESS__
+      - uses: __DATALYZE_ACTION__
+        with:
+          job: ${{ (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix')) && inputs.job || 'tracking' }}
+        env:
+          DATALYZE_ITEMS: ${{ inputs.items }}
+          DATALYZE_AUDIT_AT: ${{ inputs.audit }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATALYZE_KEY: ${{ secrets.DATALYZE_KEY }}
+__TRACKING_ENV__
+
+  sheet:
+    # Rebuilds the Google Sheet from the registry after every merge to the default branch.
+    if: >-
+      (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'sync-sheet')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: datalyze-sheet
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: __DATALYZE_ACTION__
+        with:
+          job: sync-sheet
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+__SHEET_ENV__
