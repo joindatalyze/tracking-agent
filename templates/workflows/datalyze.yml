@@ -22,7 +22,8 @@ __MODEL_SECRET_DOC__#   DATALYZE_SHEET_URL            the Google Sheet (optional
 # with a required code-owner review is what stops a PR from editing it to fake its checks.
 #
 # Statuses aren't written back after a merge: each check works them out from a scan of the code.
-# The Google Sheet: every push to the default branch rebuilds it from the registry (job "sheet").
+# The Google Sheet: every push to the default branch rebuilds it from the registry (job "sheet"),
+# when one is connected on Datalyze's Setup page.
 # By hand (Actions > Datalyze > Run workflow, or from the Datalyze review UI): an audit of the
 # default branch against your analytics data (pushed to the branch datalyze/audit), and fix PRs for
 # the findings you pick. A failed sync or audit fails that run only; it never blocks a PR.
@@ -140,4 +141,6 @@ __TRACKING_ENV__
           job: sync-sheet
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The Sheet connected on Datalyze's Setup page (none connected: the job just says so).
+          DATALYZE_KEY: ${{ secrets.DATALYZE_KEY }}
 __SHEET_ENV__
