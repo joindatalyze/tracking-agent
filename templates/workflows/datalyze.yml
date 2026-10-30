@@ -35,6 +35,10 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   pull_request_review:
     types: [submitted]
+  # A fork's PR only (job "fork"): its own run has no secrets. This runs this branch's copy of the
+  # workflow and never the fork's code; the fork's head is only read by the scanner.
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
   # After a merge: the Sheet is rebuilt (job "sheet"). If your default branch has another name, put it here.
   push:
     branches: [__DEFAULT_BRANCH__]
@@ -65,13 +69,19 @@ permissions:
 
 jobs:
   rules:
-    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
+    if: github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
+      # The verified method bundle, so the check still runs if Datalyze can't be reached.
+      - uses: actions/cache@v4
+        with:
+          path: .datalyze/cache
+          key: datalyze-method-${{ github.run_id }}
+          restore-keys: datalyze-method-
       - uses: __DATALYZE_ACTION__
         with:
           job: rules
@@ -83,8 +93,8 @@ jobs:
     # Runs on pushes, on an Approve review, on the datalyze:approve label, and on Retry. The same job
     # runs the first audit, the audit and fix PRs (by hand), because they need the same access.
     if: >-
-      (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'datalyze:approve')) ||
-      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'datalyze:approve')) ||
+      (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository && github.event.review.state == 'approved') ||
       (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || (inputs.job == 'tracking' && inputs.pr != '')))
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -121,6 +131,40 @@ __MODEL_ACCESS__
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DATALYZE_KEY: ${{ secrets.DATALYZE_KEY }}
 __TRACKING_ENV__
+      # A run cancelled or timed out mid-way would leave "Analysing" or "Implementing" pending: this
+      # turns it into an error with a Retry note. It does nothing when the run finished.
+      - if: (cancelled() || failure()) && (github.event_name != 'workflow_dispatch' || inputs.job == 'tracking')
+        uses: __DATALYZE_ACTION__
+        with:
+          job: cleanup
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  fork:
+    # A fork's PR: both checks, without the fork's code, model or secrets beyond the App token.
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: datalyze-fork-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      # This branch, never the fork's head (the default for pull_request_target).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/cache@v4
+        with:
+          path: .datalyze/cache
+          key: datalyze-method-${{ github.run_id }}
+          restore-keys: datalyze-method-
+      - uses: __DATALYZE_ACTION__
+        with:
+          job: fork
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATALYZE_KEY: ${{ secrets.DATALYZE_KEY }}
 
   sheet:
     # Rebuilds the Google Sheet from the registry after every merge to the default branch.
