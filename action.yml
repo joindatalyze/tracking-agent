@@ -7,7 +7,7 @@ branding:
 
 inputs:
   job:
-    description: "tracking (the agent on a PR: proposal, then implementation and verification once a reviewer approves on GitHub, then green once someone approves the verified commit), rules (scripts only, no model), sync-sheet (rebuild the Google Sheet from the registry), audit (the default branch against the analytics data, pushed to datalyze/audit) or fix (fix PRs for audit findings)"
+    description: "tracking (the agent on a PR: proposal, then implementation and verification once a reviewer approves on GitHub, then green once someone approves the verified commit), rules (scripts only, no model), sync-sheet (rebuild the Google Sheet from the registry), audit (the default branch against the analytics data, pushed to datalyze/audit), fix (fix PRs for audit findings), initial-audit (the first tracking plan, as a PR) or refresh-map (the tracking map checked against the code, as a PR)"
     required: false
     default: tracking
   working-directory:
@@ -21,6 +21,14 @@ runs:
     - uses: actions/setup-node@v4
       with:
         node-version: 22
+    # The Claude harness's native binary (the Agent SDK's Claude Code CLI, 294 MB, too big for this
+    # repo): installed by the agent on first use at the pinned version and hash-checked, kept here
+    # between runs. Jobs that never run a model batch skip it.
+    - if: inputs.job != 'rules' && inputs.job != 'fork' && inputs.job != 'sync-sheet' && inputs.job != 'cleanup'
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.tool_cache }}/datalyze-claude/0.3.312
+        key: datalyze-claude-0.3.312-${{ runner.os }}-${{ runner.arch }}
     - name: Run
       shell: bash
       working-directory: ${{ inputs.working-directory }}
