@@ -7,7 +7,7 @@ branding:
 
 inputs:
   job:
-    description: "tracking (the agent on a PR: proposal, then implementation and verification once a reviewer approves on GitHub, then green once someone approves the verified commit), rules (scripts only, no model), sync-sheet (rebuild the Google Sheet from the registry), audit (the default branch against the analytics data, pushed to datalyze/audit), fix (fix PRs for audit findings), initial-audit (the first tracking plan, as a PR) or refresh-map (the tracking map checked against the code, as a PR)"
+    description: "tracking (the agent on a PR: proposal, then implementation and verification once a reviewer approves on GitHub, then green once someone approves the verified commit), rules (scripts only, no model), sync-sheet (rebuild the Google Sheet from the registry), audit (the default branch against the analytics data, pushed to datalyze/audit), fix (fix PRs for audit findings), initial-audit (the first tracking plan, as a PR) refresh-map (the tracking map checked against the code, as a PR) or plan-proposal (an open first-plan PR from before v1.4 made reviewable in Datalyze, from its own audit, no model)"
     required: false
     default: tracking
   working-directory:
