@@ -45,9 +45,9 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "What to run: initial-audit (your first tracking plan, as a PR), tracking (the PR check on one PR again: Retry), audit (the default branch against your analytics data), fix (fix PRs for audit findings), refresh-map (the tracking map checked against the code, as a PR) or sync-sheet (rebuild the Sheet)"
+        description: "What to run: initial-audit (your first tracking plan, as a PR), tracking (the PR check on one PR again: Retry), audit (the default branch against your analytics data), fix (fix PRs for audit findings), refresh-map (the tracking map checked against the code, as a PR), plan-proposal (an open first-plan PR from before v1.4 made reviewable in Datalyze, no model) or sync-sheet (rebuild the Sheet)"
         type: choice
-        options: [initial-audit, tracking, audit, fix, refresh-map, sync-sheet]
+        options: [initial-audit, tracking, audit, fix, refresh-map, plan-proposal, sync-sheet]
         default: tracking
       pr:
         description: Pull request number (for tracking)
@@ -59,7 +59,7 @@ on:
         description: The generated_at of the audit the findings were picked from (for fix; optional)
         required: false
       continue_usd:
-        description: "For initial-audit or refresh-map after it paused at its cost cap: how much more it may spend (USD) to finish"
+        description: "For initial-audit, refresh-map or tracking after it paused at its cost cap: how much more it may spend (USD) to finish"
         required: false
 
 permissions:
@@ -98,11 +98,11 @@ jobs:
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'datalyze:approve')) ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository && github.event.review.state == 'approved') ||
-      (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || inputs.job == 'refresh-map' || (inputs.job == 'tracking' && inputs.pr != '')))
+      (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || inputs.job == 'refresh-map' || inputs.job == 'plan-proposal' || (inputs.job == 'tracking' && inputs.pr != '')))
     runs-on: ubuntu-latest
-    # The first audit (and Refresh the map) of a large codebase can take hours; it checkpoints after every batch, so a
-    # run that hits the limit resumes on Re-run. Everything else stops at an hour.
-    timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'refresh-map')) && 360 || 60 }}
+    # The first audit, Refresh the map and implementing a first plan can take hours on a large codebase; each
+    # checkpoints after every batch, so a run that hits the limit resumes on Re-run. Everything else stops at an hour.
+    timeout-minutes: ${{ ((github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'refresh-map' || inputs.job == 'tracking')) || github.event.pull_request.head.ref == 'datalyze/initial-plan') && 360 || 60 }}
     # One run per PR at a time; runs are idempotent, so a queued run picks up where the last one left
     # off. The first audit, the audit and fix runs have a group each.
     concurrency:
@@ -137,10 +137,19 @@ jobs:
             datalyze-audit-${{ github.run_id }}-
             datalyze-audit-
 
+      # A PR's checkpoint while it's implemented area by area: Re-run, Retry and Continue replay the areas done.
+      - if: github.event_name != 'workflow_dispatch' || inputs.job == 'tracking'
+        uses: actions/cache/restore@v4
+        with:
+          path: .datalyze/cache/runs
+          key: datalyze-pr-${{ github.event.pull_request.number || inputs.pr }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            datalyze-pr-${{ github.event.pull_request.number || inputs.pr }}-
+
 __MODEL_ACCESS__
       - uses: __DATALYZE_ACTION__
         with:
-          job: ${{ (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || inputs.job == 'refresh-map')) && inputs.job || 'tracking' }}
+          job: ${{ (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || inputs.job == 'refresh-map' || inputs.job == 'plan-proposal')) && inputs.job || 'tracking' }}
         env:
           DATALYZE_ITEMS: ${{ inputs.items }}
           DATALYZE_AUDIT_AT: ${{ inputs.audit }}
@@ -154,6 +163,11 @@ __TRACKING_ENV__
         with:
           path: .datalyze/cache/runs
           key: datalyze-audit-${{ github.run_id }}-${{ github.run_attempt }}
+      - if: always() && (github.event_name != 'workflow_dispatch' || inputs.job == 'tracking')
+        uses: actions/cache/save@v4
+        with:
+          path: .datalyze/cache/runs
+          key: datalyze-pr-${{ github.event.pull_request.number || inputs.pr }}-${{ github.run_id }}-${{ github.run_attempt }}
       # A run cancelled or timed out mid-way would leave "Analysing" or "Implementing" pending: this
       # turns it into an error with a Retry note. It does nothing when the run finished.
       - if: (cancelled() || failure()) && (github.event_name != 'workflow_dispatch' || inputs.job == 'tracking')

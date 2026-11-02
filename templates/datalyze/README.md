@@ -9,6 +9,7 @@ The tracking plan itself is in `__REGISTRY__/`: one YAML file per area, plus the
 | Path | What it is | Who edits it |
 |---|---|---|
 | `config.yaml` | How the check runs here: model, reviewers, your own checks, the Sheet | You |
+| `context.md` | What your team told the agent about the product: where tracking is sent, what matters, what to leave out. Every model call reads it | You (or Setup in Datalyze) |
 | `conventions.md` | Rules reviewers made with "Make this a rule"; the agent treats them as binding | The agent, from reviews |
 | `decisions.yaml` | Rejected and dropped proposals, with reasons, so they aren't proposed again | The agent, from reviews |
 | `proposals/pr-<n>.yaml` | The tracking proposal for one pull request | The agent writes it; reviewers edit `final` and `note` |
