@@ -65,6 +65,8 @@ runs:
         allowed_bots: ${{ steps.prepare.outputs.bot }},github-actions[bot]
         claude_args: --permission-mode acceptEdits --allowedTools "Read,Grep,Glob,Edit,Write,Task,Bash,mcp__plugin_datalyze_datalyze"
 
+    # A free-form request pushes through claude-code-action itself, so it gets the workflow's own
+    # token, never the App's: finish then gives the new head datalyze/rules and a review.
     - name: Claude (an @datalyze request)
       if: steps.prepare.outputs.run == 'true' && steps.prepare.outputs.mode == 'tag'
       uses: anthropics/claude-code-action@v1
@@ -72,7 +74,7 @@ runs:
         DATALYZE_KEY: ${{ inputs.datalyze_key }}
       with:
         anthropic_api_key: ${{ inputs.anthropic_api_key }}
-        github_token: ${{ steps.prepare.outputs.token }}
+        github_token: ${{ inputs.github_token }}
         trigger_phrase: "@datalyze"
         plugin_marketplaces: https://github.com/joindatalyze/claude-plugins.git
         plugins: datalyze@datalyze
@@ -84,6 +86,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         DATALYZE_KEY: ${{ inputs.datalyze_key }}
+        CLAUDE_OUTCOME: ${{ steps.prepare.outputs.mode == 'agent' && steps.claude.outcome || '' }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action finish
 
     - name: Sheet

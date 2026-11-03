@@ -60,9 +60,10 @@ jobs:
   agent:
     if: github.event_name != 'issue_comment' || startsWith(github.event.comment.body, '@datalyze')
     runs-on: ubuntu-latest
-    # One run at a time per pull request; a newer push waits rather than cancelling one mid-commit.
+    # One run at a time per pull request (review and implement alike); a newer push waits rather than
+    # cancelling one mid-commit. Fix runs per area, audits and Sheet syncs each queue on their own.
     concurrency:
-      group: datalyze-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.ref }}-${{ inputs.findings || '' }}
+      group: datalyze-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.ref }}-${{ github.event_name == 'push' && 'sheet' || inputs.pr && 'pr' || inputs.findings || inputs.job || 'pr' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
