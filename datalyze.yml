@@ -6,8 +6,8 @@
 # On a pull request the agent proposes what tracking the change needs. Approve in Datalyze or comment
 # `@datalyze apply`, and it builds and verifies the change on the branch. `@datalyze <anything>` on an
 # issue or pull request asks it something else. Runs started from Datalyze: an audit, and fixes for the
-# audit findings you pick (one pull request per product area). Each merge to the default branch
-# updates the Google Sheet.
+# audit findings you pick (one pull request per product area). Merging the setup pull request starts
+# the first audit; each merge after that updates the Google Sheet.
 #
 # Secrets: ANTHROPIC_API_KEY (Claude runs on this runner with your key), DATALYZE_KEY (your workspace's
 # key: the only thing sent to Datalyze), and the read-only analytics keys setup saved. No App secret:
@@ -15,7 +15,8 @@
 # repo, so your CI runs on the agent's commits.
 
 name: Datalyze
-run-name: "${{ github.event_name == 'workflow_dispatch' && format('Datalyze: {0}', inputs.job) || '' }}"
+# A started run (and an `@datalyze apply`) names its job and target, so Datalyze's dashboard can say which run is which.
+run-name: "${{ github.event_name == 'workflow_dispatch' && format('Datalyze: {0}{1}{2}', inputs.job, inputs.pr && format(' #{0}', inputs.pr) || '', inputs.findings && format(' {0}', inputs.findings) || '') || github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '@datalyze apply') && format('Datalyze: apply #{0}', github.event.issue.number) || '' }}"
 
 on:
   pull_request:

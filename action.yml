@@ -46,6 +46,8 @@ runs:
         INPUT_JOB: ${{ inputs.job }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         DATALYZE_KEY: ${{ inputs.datalyze_key }}
+        # Only for the setup pull request's connection check (one read of the model list); Claude gets it below.
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
       run: |
         git config --global --add safe.directory "$PWD"
         node "$GITHUB_ACTION_PATH/bin/datalyze.js" action prepare
@@ -90,9 +92,11 @@ runs:
         CLAUDE_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action finish
 
+    # On the merge that brings this workflow in, with no plan yet, it starts the first audit instead.
     - name: Sheet
       if: steps.prepare.outputs.job == 'sheet'
       shell: bash
       env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
         DATALYZE_KEY: ${{ inputs.datalyze_key }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action sheet
