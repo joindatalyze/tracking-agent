@@ -1,0 +1,81 @@
+# Datalyze Tracking Agent. Written by Datalyze's setup; yours to edit.
+#
+# Two statuses: datalyze/rules (scripts only, every push, no model) and datalyze/tracking (the agent).
+# Make both required checks on your default branch.
+#
+# On a pull request the agent proposes what tracking the change needs. Approve in Datalyze or comment
+# `@datalyze apply`, and it builds and verifies the change on the branch. `@datalyze <anything>` on an
+# issue or pull request asks it something else. Runs started from Datalyze: an audit, and fixes for the
+# audit findings you pick (one pull request per product area). Each merge to the default branch
+# updates the Google Sheet.
+#
+# Secrets: ANTHROPIC_API_KEY (Claude runs on this runner with your key), DATALYZE_KEY (your workspace's
+# key: the only thing sent to Datalyze), and the read-only analytics keys setup saved. No App secret:
+# each run proves which repo it is with GitHub's OIDC token and gets the Datalyze App's token for this
+# repo, so your CI runs on the agent's commits.
+
+name: Datalyze
+run-name: "${{ github.event_name == 'workflow_dispatch' && format('Datalyze: {0}', inputs.job) || '' }}"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      job:
+        type: choice
+        options: [audit, implement, review]
+      pr:
+        description: Pull request number (review, implement)
+        required: false
+      findings:
+        description: Audit finding ids, comma-separated (implement)
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  statuses: write
+  id-token: write
+  actions: write
+
+jobs:
+  rules:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: joindatalyze/tracking-agent@v2
+        with:
+          job: rules
+          datalyze_key: ${{ secrets.DATALYZE_KEY }}
+
+  agent:
+    if: github.event_name != 'issue_comment' || startsWith(github.event.comment.body, '@datalyze')
+    runs-on: ubuntu-latest
+    # One run at a time per pull request; a newer push waits rather than cancelling one mid-commit.
+    concurrency:
+      group: datalyze-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.ref }}-${{ inputs.findings || '' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: joindatalyze/tracking-agent@v2
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          datalyze_key: ${{ secrets.DATALYZE_KEY }}
+        env:
+          # The analytics keys, only the ones setup saved.
+          MIXPANEL_SA_USERNAME: ${{ secrets.MIXPANEL_SA_USERNAME }}
+          MIXPANEL_SA_SECRET: ${{ secrets.MIXPANEL_SA_SECRET }}
+          # The Google Sheet through Apps Script, if you connected it that way (otherwise Datalyze relays it).
+          DATALYZE_SHEET_URL: ${{ secrets.DATALYZE_SHEET_URL }}
+          DATALYZE_SHEET_TOKEN: ${{ secrets.DATALYZE_SHEET_TOKEN }}
