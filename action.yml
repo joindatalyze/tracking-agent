@@ -87,6 +87,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         DATALYZE_KEY: ${{ inputs.datalyze_key }}
         CLAUDE_OUTCOME: ${{ steps.prepare.outputs.mode == 'agent' && steps.claude.outcome || '' }}
+        CLAUDE_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action finish
 
     - name: Sheet
