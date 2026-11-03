@@ -7,13 +7,18 @@ branding:
 
 inputs:
   job:
-    description: "tracking (the agent on a PR: proposal, then implementation and verification once a reviewer approves on GitHub, then green once someone approves the verified commit), rules (scripts only, no model), sync-sheet (rebuild the Google Sheet from the registry), audit (the default branch against the analytics data, pushed to datalyze/audit), fix (fix PRs for audit findings), initial-audit (the first tracking plan, as a PR) or refresh-map (the tracking map checked against the code, as a PR)"
+    description: "tracking (the agent on a PR: proposal, then implementation and verification once a reviewer approves on GitHub, then green once someone approves the verified commit), rules (scripts only, no model), sync-sheet (rebuild the Google Sheet from the registry), audit (the default branch against the analytics data, pushed to datalyze/audit), fix (fix PRs for audit findings), initial-audit (the first tracking plan, as a PR) refresh-map (the tracking map checked against the code, as a PR), plan-proposal (an open first-plan PR from before v1.4 made reviewable in Datalyze, from its own audit, no model) or deps (the default branch's install, so PR checks restore its package downloads)"
     required: false
     default: tracking
   working-directory:
     description: The repository checkout to run in.
     required: false
     default: .
+
+outputs:
+  deps-cached:
+    description: "true when this run's install left package downloads in DATALYZE_DEPS_CACHE for the workflow to save"
+    value: ${{ steps.run.outputs.deps-cached }}
 
 runs:
   using: composite
@@ -23,13 +28,15 @@ runs:
         node-version: 22
     # The Claude harness's native binary (the Agent SDK's Claude Code CLI, 294 MB, too big for this
     # repo): installed by the agent on first use at the pinned version and hash-checked, kept here
-    # between runs. Jobs that never run a model batch skip it.
-    - if: inputs.job != 'rules' && inputs.job != 'fork' && inputs.job != 'sync-sheet' && inputs.job != 'cleanup'
+    # between runs. Only the first audit and Refresh the map run batches on the harness; the PR check and
+    # fix PRs call the model directly and the audit calls none, so they don't restore it.
+    - if: inputs.job == 'initial-audit' || inputs.job == 'refresh-map'
       uses: actions/cache@v4
       with:
         path: ${{ runner.tool_cache }}/datalyze-claude/0.3.312
         key: datalyze-claude-0.3.312-${{ runner.os }}-${{ runner.arch }}
     - name: Run
+      id: run
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |

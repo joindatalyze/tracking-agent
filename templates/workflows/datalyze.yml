@@ -13,7 +13,9 @@ __MODEL_SECRET_DOC__#   DATALYZE_SHEET_URL            the Google Sheet (optional
 # Datalyze's commits. Without it (an unpaid workspace, or the App not installed) the default token is used.
 #
 # In .datalyze/config.yaml, set `install` (e.g. `install: npm ci`): verification installs the PR's own
-# dependencies rather than whatever this job's checkout has.
+# dependencies rather than whatever this job's checkout has, when your `checks` or `formatter` need them
+# (with neither, it skips the install). Job "deps" installs the default branch after each merge so PR
+# checks restore the package downloads, keyed on the lockfile.
 #
 # Approving is GitHub's own PR review: an Approve on the proposal commit starts the implementation,
 # and an Approve on the verified commit turns datalyze/tracking green. A PR's author approves with
@@ -29,6 +31,9 @@ __MODEL_SECRET_DOC__#   DATALYZE_SHEET_URL            the Google Sheet (optional
 # the findings you pick. A failed sync or audit fails that run only; it never blocks a PR.
 
 name: Datalyze
+# A run started by hand is named after its job ("Datalyze: refresh-map"), so Datalyze's dashboard can tell
+# them apart; every other run keeps GitHub's own name.
+run-name: "${{ github.event_name == 'workflow_dispatch' && format('Datalyze: {0}', inputs.job) || '' }}"
 
 on:
   pull_request:
@@ -45,9 +50,9 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "What to run: initial-audit (your first tracking plan, as a PR), tracking (the PR check on one PR again: Retry), audit (the default branch against your analytics data), fix (fix PRs for audit findings), refresh-map (the tracking map checked against the code, as a PR) or sync-sheet (rebuild the Sheet)"
+        description: "What to run: initial-audit (your first tracking plan, as a PR), tracking (the PR check on one PR again: Retry), audit (the default branch against your analytics data), fix (fix PRs for audit findings), refresh-map (the tracking map checked against the code, as a PR), plan-proposal (an open first-plan PR from before v1.4 made reviewable in Datalyze, no model) or sync-sheet (rebuild the Sheet)"
         type: choice
-        options: [initial-audit, tracking, audit, fix, refresh-map, sync-sheet]
+        options: [initial-audit, tracking, audit, fix, refresh-map, plan-proposal, sync-sheet]
         default: tracking
       pr:
         description: Pull request number (for tracking)
@@ -59,36 +64,46 @@ on:
         description: The generated_at of the audit the findings were picked from (for fix; optional)
         required: false
       continue_usd:
-        description: "For initial-audit or refresh-map after it paused at its cost cap: how much more it may spend (USD) to finish"
+        description: "For initial-audit, refresh-map or tracking after it paused at its cost cap: how much more it may spend (USD) to finish"
         required: false
 
-permissions:
-  contents: write        # push the agent's commit to the PR branch
-  statuses: write        # datalyze/tracking, datalyze/rules
-  pull-requests: write
-  issues: write          # PR comments and labels
-  id-token: write        # the Datalyze App's token for this repo, and Bedrock / Vertex through OIDC
-  actions: read          # when a run was queued, to spot an approval label whose run GitHub cancelled
+# Each job asks for only what it uses.
+permissions: {}
 
 jobs:
   rules:
     if: github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write        # datalyze/rules
+      pull-requests: read
+      id-token: write        # the Datalyze App's token for this repo: only the App's statuses count
     steps:
+      # One commit: the runner fetches the PR's head and base itself, as deep as the merge base.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
-      # The verified method bundle, so the check still runs if Datalyze can't be reached.
+      # The verified method bundle (encrypted with DATALYZE_KEY), so the check still runs if Datalyze can't be reached.
       - uses: actions/cache@v4
         with:
-          path: .datalyze/cache
+          path: .datalyze/cache/method-*.json
           key: datalyze-method-${{ github.run_id }}
           restore-keys: datalyze-method-
+      # The scanner's per-file results, kept by each file's content (DATALYZE_SCAN_CACHE): a check parses only what
+      # changed. Outside the checkout, so a pull request can't commit entries into it; restored here, and saved only
+      # by the jobs that scan the default branch's own code (first audit, map refresh, audit), never by a PR's run.
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/datalyze-scan
+          key: datalyze-scan-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: datalyze-scan-${{ runner.os }}-
       - uses: __DATALYZE_ACTION__
         with:
           job: rules
         env:
+          DATALYZE_SCAN_CACHE: ${{ runner.temp }}/datalyze-scan
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DATALYZE_KEY: ${{ secrets.DATALYZE_KEY }}
 
@@ -98,36 +113,42 @@ jobs:
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'datalyze:approve')) ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.head.repo.full_name == github.repository && github.event.review.state == 'approved') ||
-      (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || inputs.job == 'refresh-map' || (inputs.job == 'tracking' && inputs.pr != '')))
+      (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || inputs.job == 'refresh-map' || inputs.job == 'plan-proposal' || (inputs.job == 'tracking' && inputs.pr != '')))
     runs-on: ubuntu-latest
-    # The first audit (and Refresh the map) of a large codebase can take hours; it checkpoints after every batch, so a
-    # run that hits the limit resumes on Re-run. Everything else stops at an hour.
-    timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'refresh-map')) && 360 || 60 }}
+    # Six hours for every run: the first audit, Refresh the map and a large PR's analysis can take hours on a
+    # large codebase, and the first run of a PR can't know it will. Each checkpoints after every batch, so a
+    # run that hits the limit resumes on Re-run; the concurrency group below keeps one run per PR.
+    timeout-minutes: 360
     # One run per PR at a time; runs are idempotent, so a queued run picks up where the last one left
     # off. The first audit, the audit and fix runs have a group each.
     concurrency:
       group: datalyze-tracking-${{ github.event.pull_request.number || inputs.pr || inputs.job }}
       cancel-in-progress: false
+    permissions:
+      contents: write        # push the agent's commit to the PR branch
+      statuses: write        # datalyze/tracking, datalyze/progress
+      pull-requests: write
+      issues: write          # PR comments and labels
+      id-token: write        # the Datalyze App's token for this repo, and Bedrock / Vertex through OIDC
+      actions: read          # when a run was queued, to spot an approval label whose run GitHub cancelled
     steps:
+      # A PR check needs one commit: the runner fetches the PR's head and base itself, as deep as the
+      # merge base. The jobs started by hand read the default branch's history, so they get all of it.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: ${{ (github.event_name == 'workflow_dispatch' && inputs.job != 'tracking') && '0' || '1' }}
           # The agent pushes with your App's token; a persisted default token would be sent instead.
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # The verified method bundle, so a run still works if Datalyze can't be reached.
+      # The verified method bundle (encrypted with DATALYZE_KEY), so a run still works if Datalyze can't be reached.
       - uses: actions/cache@v4
         with:
-          path: .datalyze/cache
+          path: .datalyze/cache/method-*.json
           key: datalyze-method-${{ github.run_id }}
           restore-keys: datalyze-method-
 
       # The first audit's (and a map refresh's) checkpoint: one file per finished batch. Re-run, Retry and Continue pick up
-      # where the last run stopped (a checkpoint for another commit is ignored).
+      # where the last run stopped; a run paused at its cost cap resumes on the commit it started on, for 7 days.
       - if: github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'refresh-map')
         uses: actions/cache/restore@v4
         with:
@@ -137,23 +158,75 @@ jobs:
             datalyze-audit-${{ github.run_id }}-
             datalyze-audit-
 
-__MODEL_ACCESS__
-      - uses: __DATALYZE_ACTION__
+      # A PR's checkpoint: the analysis's answers, the areas implemented, a verified implementation not yet pushed.
+      # Re-run replays them, and so do Retry and Continue in Datalyze, which re-run the PR's own run. GitHub scopes a
+      # PR run's caches to the PR, so a run started by hand (on the default branch) sees only what such a run saved.
+      - if: github.event_name != 'workflow_dispatch' || inputs.job == 'tracking'
+        uses: actions/cache/restore@v4
         with:
-          job: ${{ (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || inputs.job == 'refresh-map')) && inputs.job || 'tracking' }}
+          path: .datalyze/cache/runs
+          key: datalyze-pr-${{ github.event.pull_request.number || inputs.pr }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            datalyze-pr-${{ github.event.pull_request.number || inputs.pr }}-
+
+      # The package downloads of `install` (from .datalyze/config.yaml), on the lockfile's hash. The job "deps"
+      # saves them from the default branch; a PR's own run adds to them for its next run.
+      - id: deps
+        if: github.event_name != 'workflow_dispatch' || inputs.job == 'tracking'
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/datalyze-deps
+          key: datalyze-deps-${{ runner.os }}-${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/bun.lock', '**/bun.lockb', '!**/node_modules/**') }}
+          restore-keys: datalyze-deps-${{ runner.os }}-
+
+      # The scanner's per-file results, kept by each file's content (DATALYZE_SCAN_CACHE): a check parses only what
+      # changed. Outside the checkout, so a pull request can't commit entries into it; restored here, and saved only
+      # by the jobs that scan the default branch's own code (first audit, map refresh, audit), never by a PR's run.
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/datalyze-scan
+          key: datalyze-scan-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: datalyze-scan-${{ runner.os }}-
+
+__MODEL_ACCESS__
+      - id: datalyze
+        uses: __DATALYZE_ACTION__
+        with:
+          job: ${{ (github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'audit' || inputs.job == 'fix' || inputs.job == 'refresh-map' || inputs.job == 'plan-proposal')) && inputs.job || 'tracking' }}
         env:
           DATALYZE_ITEMS: ${{ inputs.items }}
           DATALYZE_AUDIT_AT: ${{ inputs.audit }}
           DATALYZE_CONTINUE_USD: ${{ inputs.continue_usd }}
+          DATALYZE_DEPS_CACHE: /tmp/datalyze-deps
+          DATALYZE_SCAN_CACHE: ${{ runner.temp }}/datalyze-scan
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DATALYZE_KEY: ${{ secrets.DATALYZE_KEY }}
 __TRACKING_ENV__
+      # The scanner's results, from the jobs that scan only the default branch's own code (above).
+      - if: success() && github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'refresh-map' || inputs.job == 'audit')
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/datalyze-scan
+          key: datalyze-scan-${{ runner.os }}-${{ github.run_id }}
       # Saved however the run ended (a timeout, a cancel, the cost cap), so the next one resumes.
       - if: always() && github.event_name == 'workflow_dispatch' && (inputs.job == 'initial-audit' || inputs.job == 'refresh-map')
         uses: actions/cache/save@v4
         with:
           path: .datalyze/cache/runs
           key: datalyze-audit-${{ github.run_id }}-${{ github.run_attempt }}
+      - if: always() && (github.event_name != 'workflow_dispatch' || inputs.job == 'tracking')
+        uses: actions/cache/save@v4
+        with:
+          path: .datalyze/cache/runs
+          key: datalyze-pr-${{ github.event.pull_request.number || inputs.pr }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # Only when the install filled the folder (the action says so) and the exact key wasn't there. Never on a
+      # run started by hand: it runs on the default branch, so its save would land in the cache every PR restores,
+      # filled by this PR's own install. A PR event saves to that PR's own cache only.
+      - if: always() && github.event_name != 'workflow_dispatch' && steps.datalyze.outputs.deps-cached == 'true' && steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/datalyze-deps
+          key: ${{ steps.deps.outputs.cache-primary-key }}
       # A run cancelled or timed out mid-way would leave "Analysing" or "Implementing" pending: this
       # turns it into an error with a Retry note. It does nothing when the run finished.
       - if: (cancelled() || failure()) && (github.event_name != 'workflow_dispatch' || inputs.job == 'tracking')
@@ -171,6 +244,12 @@ __TRACKING_ENV__
     concurrency:
       group: datalyze-fork-${{ github.event.pull_request.number }}
       cancel-in-progress: true
+    permissions:
+      contents: read
+      statuses: write        # both checks
+      pull-requests: read
+      issues: write          # one comment when the fork's PR has tracking changes
+      id-token: write        # the Datalyze App's token for this repo
     steps:
       # This branch, never the fork's head (the default for pull_request_target).
       - uses: actions/checkout@v4
@@ -179,7 +258,7 @@ __TRACKING_ENV__
           persist-credentials: false
       - uses: actions/cache@v4
         with:
-          path: .datalyze/cache
+          path: .datalyze/cache/method-*.json
           key: datalyze-method-${{ github.run_id }}
           restore-keys: datalyze-method-
       - uses: __DATALYZE_ACTION__
@@ -188,6 +267,51 @@ __TRACKING_ENV__
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DATALYZE_KEY: ${{ secrets.DATALYZE_KEY }}
+
+  deps:
+    # After a merge: the default branch's install (`install` in .datalyze/config.yaml), so every PR check
+    # restores its package downloads instead of fetching them again. GitHub keeps a PR's own caches to
+    # that PR, so they have to come from here. Does nothing when the lockfile's are already cached.
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: datalyze-deps
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - id: cached
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/datalyze-deps
+          key: datalyze-deps-${{ runner.os }}-${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/bun.lock', '**/bun.lockb', '!**/node_modules/**') }}
+          lookup-only: true
+      # An older lockfile's downloads, so this install only fetches what changed.
+      - if: steps.cached.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/datalyze-deps
+          key: ${{ steps.cached.outputs.cache-primary-key }}
+          restore-keys: datalyze-deps-${{ runner.os }}-
+      # An action from before the deps job doesn't know it: that never fails the push.
+      - id: install
+        if: steps.cached.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: __DATALYZE_ACTION__
+        with:
+          job: deps
+        env:
+          DATALYZE_DEPS_CACHE: /tmp/datalyze-deps
+      - if: steps.install.outputs.deps-cached == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/datalyze-deps
+          key: ${{ steps.cached.outputs.cache-primary-key }}
 
   sheet:
     # Rebuilds the Google Sheet from the registry after every merge to the default branch.
@@ -199,6 +323,8 @@ __TRACKING_ENV__
     concurrency:
       group: datalyze-sheet
       cancel-in-progress: false
+    permissions:
+      contents: read         # the registry; the Sheet is written through Datalyze with DATALYZE_KEY
     steps:
       - uses: actions/checkout@v4
         with:
