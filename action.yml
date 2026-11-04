@@ -99,9 +99,10 @@ runs:
         CLAUDE_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action finish
 
-    # A finished audit GitHub wouldn't take (an outage): finish left its files here, so they outlive the runner.
+    # A finished run's work that didn't go up (an outage, a build that needs a person, Claude stopping
+    # early): finish left it here, so it outlives the runner. Nothing there, nothing uploaded.
     - name: Keep what couldn't be pushed
-      if: always() && steps.finish.outcome == 'failure'
+      if: always() && steps.prepare.outputs.run == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: datalyze-unpublished
