@@ -58,9 +58,11 @@ runs:
         git config --global --add safe.directory "$PWD"
         node "$GITHUB_ACTION_PATH/bin/datalyze.js" action prepare
 
+    # Its failure doesn't end the job: check gives Claude a second pass, and finish publishes what there is.
     - name: Claude
       id: claude
       if: steps.prepare.outputs.run == 'true' && steps.prepare.outputs.mode == 'agent'
+      continue-on-error: true
       uses: anthropics/claude-code-action@v1
       env:
         DATALYZE_KEY: ${{ inputs.datalyze_key }}
@@ -68,6 +70,31 @@ runs:
         anthropic_api_key: ${{ inputs.anthropic_api_key }}
         github_token: ${{ steps.prepare.outputs.token }}
         prompt: ${{ steps.prepare.outputs.prompt }}
+        plugin_marketplaces: https://github.com/joindatalyze/claude-plugins.git
+        plugins: datalyze@datalyze
+        allowed_bots: ${{ steps.prepare.outputs.bot }},github-actions[bot]
+        claude_args: --permission-mode acceptEdits --allowedTools "Read,Grep,Glob,Edit,Write,Task,Bash,mcp__plugin_datalyze_datalyze"
+
+    # Unfinished work (Claude stopped, a check fails, items left): one more pass, told exactly what's left.
+    - name: Check the work
+      id: check
+      if: ${{ !cancelled() && steps.prepare.outputs.run == 'true' && steps.prepare.outputs.mode == 'agent' }}
+      shell: bash
+      env:
+        CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+      run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action check
+
+    - name: Claude (second pass)
+      id: claude2
+      if: ${{ !cancelled() && steps.check.outputs.retry == 'true' }}
+      continue-on-error: true
+      uses: anthropics/claude-code-action@v1
+      env:
+        DATALYZE_KEY: ${{ inputs.datalyze_key }}
+      with:
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        github_token: ${{ steps.prepare.outputs.token }}
+        prompt: ${{ steps.check.outputs.prompt }}
         plugin_marketplaces: https://github.com/joindatalyze/claude-plugins.git
         plugins: datalyze@datalyze
         allowed_bots: ${{ steps.prepare.outputs.bot }},github-actions[bot]
@@ -95,8 +122,8 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         DATALYZE_KEY: ${{ inputs.datalyze_key }}
-        CLAUDE_OUTCOME: ${{ steps.prepare.outputs.mode == 'agent' && steps.claude.outcome || '' }}
-        CLAUDE_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        CLAUDE_OUTCOME: ${{ steps.prepare.outputs.mode == 'agent' && (steps.check.outputs.retry == 'true' && steps.claude2.outcome || steps.claude.outcome) || '' }}
+        CLAUDE_EXECUTION_FILE: ${{ steps.check.outputs.retry == 'true' && steps.claude2.outputs.execution_file || steps.claude.outputs.execution_file }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action finish
 
     # A finished run's work that didn't go up (an outage, a build that needs a person, Claude stopping
