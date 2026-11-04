@@ -13,6 +13,10 @@
 # key: the only thing sent to Datalyze), and the read-only analytics keys setup saved. No App secret:
 # each run proves which repo it is with GitHub's OIDC token and gets the Datalyze App's token for this
 # repo, so your CI runs on the agent's commits.
+#
+# A pull request from a fork is never built (Datalyze can't push to a fork). Its own run can't post a
+# status, so the fork job does, on pull_request_target: it runs this file as your default branch has it
+# and never checks out or runs the fork's code.
 
 name: Datalyze
 # A started run (and an `@datalyze apply`) names its job and target, so Datalyze's dashboard can say which run is which.
@@ -21,6 +25,8 @@ run-name: "${{ github.event_name == 'workflow_dispatch' && format('Datalyze: {0}
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
   push:
@@ -47,7 +53,7 @@ permissions:
 
 jobs:
   rules:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,8 +64,17 @@ jobs:
           job: rules
           datalyze_key: ${{ secrets.DATALYZE_KEY }}
 
+  # No checkout and no secrets but the default token: nothing from the fork runs.
+  fork:
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: joindatalyze/tracking-agent@v2
+        with:
+          job: fork
+
   agent:
-    if: github.event_name != 'issue_comment' || startsWith(github.event.comment.body, '@datalyze')
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '@datalyze'))
     runs-on: ubuntu-latest
     # One run at a time per pull request (review and implement alike); a newer push waits rather than
     # cancelling one mid-commit. Fix runs per area, audits and Sheet syncs each queue on their own.

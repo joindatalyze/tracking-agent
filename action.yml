@@ -7,7 +7,7 @@ branding:
 
 inputs:
   job:
-    description: "auto (picked from the event: review on a pull request, implement on `@datalyze apply` or a dispatch, audit on a dispatch, the Sheet on a push to the default branch) or rules (the datalyze/rules check, no model)"
+    description: "auto (picked from the event: review on a pull request, implement on `@datalyze apply` or a dispatch, audit on a dispatch, the Sheet on a push to the default branch), rules (the datalyze/rules check, no model) or fork (a fork's pull request on pull_request_target: both checks \"not checked\", nothing from the fork is run)"
     required: false
     default: auto
   anthropic_api_key:
@@ -38,9 +38,15 @@ runs:
         git config --global --add safe.directory "$PWD"
         node "$GITHUB_ACTION_PATH/bin/datalyze.js" action rules
 
+    # A fork's pull request, on pull_request_target: nothing is checked out, so no fork code runs here.
+    - name: Datalyze (a fork's pull request)
+      if: inputs.job == 'fork'
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action fork
+
     - name: Licence, token and job
       id: prepare
-      if: inputs.job != 'rules'
+      if: inputs.job != 'rules' && inputs.job != 'fork'
       shell: bash
       env:
         INPUT_JOB: ${{ inputs.job }}
