@@ -17,7 +17,7 @@ inputs:
     description: Your workspace's Datalyze key, for the licence check and the knowledge.
     required: false
   github_token:
-    description: The workflow's own token, to read the pull request and to start one fix run per area.
+    description: The workflow's own token, to read the pull request.
     required: false
     default: ${{ github.token }}
 

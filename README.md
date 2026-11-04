@@ -10,7 +10,7 @@ Datalyze's setup writes the workflow for you. It is [`datalyze.yml`](datalyze.ym
 |---|---|---|
 | A pull request is opened or pushed | `review`: what tracking the change needs, written as a proposal on the branch and a comment | "No tracking change needed", or "Awaiting approval" |
 | You approve in Datalyze, or comment `@datalyze apply` | `implement`: the approved changes, checked by the rules and an independent verifier, committed to the branch | "Implemented and verified", "Implemented, N held back", or "Needs a person" |
-| Run from Datalyze | `audit` of the default branch, or fixes for the audit findings you pick (one pull request per product area) | |
+| Run from Datalyze | `audit` of the default branch, or the fixes and answers you pick on the audit screen (one pull request per audit) | |
 | A push to the default branch | The Google Sheet is rebuilt from the tracking plan | |
 | `@datalyze <anything>` on an issue or pull request | Claude answers, with the plugin | |
 
