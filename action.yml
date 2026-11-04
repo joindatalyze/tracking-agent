@@ -89,6 +89,7 @@ runs:
         claude_args: --allowedTools "Read,Grep,Glob,Edit,Write,Task,Bash,mcp__plugin_datalyze_datalyze"
 
     - name: Commit, report and status
+      id: finish
       if: always() && steps.prepare.outputs.run == 'true'
       shell: bash
       env:
@@ -97,6 +98,17 @@ runs:
         CLAUDE_OUTCOME: ${{ steps.prepare.outputs.mode == 'agent' && steps.claude.outcome || '' }}
         CLAUDE_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action finish
+
+    # A finished audit GitHub wouldn't take (an outage): finish left its files here, so they outlive the runner.
+    - name: Keep what couldn't be pushed
+      if: always() && steps.finish.outcome == 'failure'
+      uses: actions/upload-artifact@v4
+      with:
+        name: datalyze-unpublished
+        path: ${{ runner.temp }}/datalyze-unpublished
+        if-no-files-found: ignore
+        include-hidden-files: true
+        retention-days: 30
 
     # On the merge that brings this workflow in, with no plan yet, it starts the first audit instead.
     - name: Sheet
