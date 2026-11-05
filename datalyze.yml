@@ -6,8 +6,9 @@
 # On a pull request the agent proposes what tracking the change needs. Approve in Datalyze or comment
 # `@datalyze apply`, and it builds and verifies the change on the branch. `@datalyze <anything>` on an
 # issue or pull request asks it something else. Runs started from Datalyze: an audit, and fixes for the
-# audit findings you pick (one pull request per product area). Merging the setup pull request starts
-# the first audit; each merge after that updates the Google Sheet.
+# audit findings you pick (one pull request per product area), and a check of newly saved keys (no
+# model runs: one read-only request to Anthropic and one to the analytics tool). Merging the setup pull
+# request starts the first audit; each merge after that updates the Google Sheet.
 #
 # Secrets: ANTHROPIC_API_KEY (Claude runs on this runner with your key), DATALYZE_KEY (your workspace's
 # key: the only thing sent to Datalyze), and the read-only analytics keys setup saved. No App secret:
@@ -35,7 +36,7 @@ on:
     inputs:
       job:
         type: choice
-        options: [audit, implement, review]
+        options: [audit, implement, review, check]
       pr:
         description: Pull request number (review, implement)
         required: false
