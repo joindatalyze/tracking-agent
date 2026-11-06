@@ -58,6 +58,17 @@ runs:
         git config --global --add safe.directory "$PWD"
         node "$GITHUB_ACTION_PATH/bin/datalyze.js" action prepare
 
+    # Kept between runs: an audit's whole snapshot, which a pull request's review reuses for a day instead of
+    # asking the analytics tool again (its hourly limits are shared by every run), and Amplitude's counts.
+    # Every run restores the newest; only audits save, so a pull request's own cache never hides a newer audit's.
+    - name: Datalyze run cache
+      if: steps.prepare.outputs.run == 'true' && steps.prepare.outputs.mode == 'agent'
+      uses: actions/cache/restore@v4
+      with:
+        path: .datalyze/cache/runs
+        key: datalyze-runs-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: datalyze-runs-
+
     # Its failure doesn't end the job: check gives Claude a second pass, and finish publishes what there is.
     - name: Claude
       id: claude
@@ -125,6 +136,14 @@ runs:
         CLAUDE_OUTCOME: ${{ steps.prepare.outputs.mode == 'agent' && (steps.check.outputs.retry == 'true' && steps.claude2.outcome || steps.claude.outcome) || '' }}
         CLAUDE_EXECUTION_FILE: ${{ steps.check.outputs.retry == 'true' && steps.claude2.outputs.execution_file || steps.claude.outputs.execution_file }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action finish
+
+    # An audit's snapshot (and Amplitude's counts) for the next runs, kept even when the audit failed part-way.
+    - name: Save the Datalyze run cache
+      if: always() && steps.prepare.outputs.run == 'true' && steps.prepare.outputs.mode == 'agent' && steps.prepare.outputs.job == 'audit'
+      uses: actions/cache/save@v4
+      with:
+        path: .datalyze/cache/runs
+        key: datalyze-runs-${{ github.run_id }}-${{ github.run_attempt }}
 
     # A finished run's work that didn't go up (an outage, a build that needs a person, Claude stopping
     # early): finish left it here, so it outlives the runner. Nothing there, nothing uploaded.
