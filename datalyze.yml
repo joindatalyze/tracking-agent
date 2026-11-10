@@ -75,12 +75,15 @@ jobs:
           job: fork
 
   agent:
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '@datalyze'))
+    # Comments only from people who can write to the repo.
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '@datalyze') && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
-    # One run at a time per pull request (review and implement alike); a newer push waits rather than
-    # cancelling one mid-commit. Fix runs per area, audits and Sheet syncs each queue on their own.
+    # One run at a time per pull request (review, implement and `@datalyze apply`, which all push to the
+    # branch); a newer push waits rather than cancelling one mid-commit. Any other comment queues on its
+    # own, so it can never cancel the review waiting for the newest code. Fix runs per area, audits and
+    # Sheet syncs each queue on their own.
     concurrency:
-      group: datalyze-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.ref }}-${{ github.event_name == 'push' && 'sheet' || inputs.pr && 'pr' || inputs.findings || inputs.job || 'pr' }}
+      group: datalyze-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr || github.ref }}-${{ github.event_name == 'push' && 'sheet' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '@datalyze apply') && format('comment-{0}', github.event.comment.id) || inputs.pr && 'pr' || inputs.findings || inputs.job || 'pr' }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4

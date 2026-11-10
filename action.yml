@@ -44,6 +44,16 @@ runs:
       shell: bash
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action fork
 
+    # The last knowledge a run downloaded: when Datalyze can't be reached, a copy under 7 days old carries
+    # the run on, and without one the pull request goes red, never green. Every download saves a new copy.
+    - name: Datalyze knowledge copy
+      if: inputs.job != 'rules' && inputs.job != 'fork'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/datalyze-knowledge
+        key: datalyze-knowledge-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: datalyze-knowledge-
+
     - name: Licence, token and job
       id: prepare
       if: inputs.job != 'rules' && inputs.job != 'fork'
@@ -52,11 +62,19 @@ runs:
         INPUT_JOB: ${{ inputs.job }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         DATALYZE_KEY: ${{ inputs.datalyze_key }}
+        DATALYZE_KNOWLEDGE_CACHE: ${{ runner.temp }}/datalyze-knowledge
         # Only for the setup pull request's connection check (one read of the model list); Claude gets it below.
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
       run: |
         git config --global --add safe.directory "$PWD"
         node "$GITHUB_ACTION_PATH/bin/datalyze.js" action prepare
+
+    - name: Save the Datalyze knowledge copy
+      if: steps.prepare.outputs.knowledge == 'downloaded'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/datalyze-knowledge
+        key: datalyze-knowledge-${{ github.run_id }}-${{ github.run_attempt }}
 
     # Kept between runs: an audit's whole snapshot, which a pull request's review reuses for a day instead of
     # asking the analytics tool again (its hourly limits are shared by every run), and Amplitude's counts.
@@ -68,6 +86,16 @@ runs:
         path: .datalyze/cache/runs
         key: datalyze-runs-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: datalyze-runs-
+
+    # The audit's data pull installs DuckDB (a native binary the bundle can't carry) on first use;
+    # this keeps it between runs. The version must match src/snapshot/pull/duckdb-runtime (a test checks).
+    - name: DuckDB for the audit
+      if: steps.prepare.outputs.run == 'true' && steps.prepare.outputs.job == 'audit'
+      continue-on-error: true
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/datalyze/duckdb-1.5.6-r.2
+        key: datalyze-duckdb-1.5.6-r.2-${{ runner.os }}-${{ runner.arch }}
 
     # Its failure doesn't end the job: check gives Claude a second pass, and finish publishes what there is.
     - name: Claude
