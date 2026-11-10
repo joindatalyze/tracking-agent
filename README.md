@@ -18,6 +18,15 @@ The `rules` job posts `datalyze/rules` on every push to a pull request: the plan
 
 The agent never changes your rules files (`_conventions.yaml`, `_baseline.json`), `.datalyze/config.yaml`, `.datalyze/context.md`, `.claude/` or `.github/`. If the subscription lapses, both statuses pass as "Tracking Agent inactive, not checked", so a merge is never blocked.
 
+## Each run's record
+
+Every run records each step it went through and whether it worked: the licence and the plugin, the knowledge, every Datalyze tool call (each `scan`, the snapshot and what it couldn't measure, `match` per area, every follow-up query), each subagent and verifier round, the checks, and every push, status and comment. A run can finish and still have had a step fall back, so the record says which.
+
+- **The run's summary** on GitHub shows the steps that need a look first, then every step.
+- **The pull request's report** gets one line under it: whether every step went through, linking to the summary.
+- **Datalyze** shows it under Steps in the runs list, and the latest run's on the audit and pull request screens.
+- **Two artifacts:** `datalyze-run-record` (`run.json`, kept 90 days, which Datalyze reads through your sign-in) and `datalyze-run` (the step log, Claude's transcripts and the run's working files, kept 30 days, for debugging). Every secret the run held is removed from them first, and so are Datalyze's knowledge files. Both stay in your repository, visible to whoever can see its Actions runs; on a public repository only the record is kept.
+
 Your code, data and keys stay on your runner. Datalyze receives only your workspace key, for the licence check, and the run's GitHub OIDC token, which proves which repository asks for the Datalyze App's token.
 
 ## Inputs

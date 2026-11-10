@@ -142,6 +142,7 @@ runs:
     # A free-form request pushes through claude-code-action itself, so it gets the workflow's own
     # token, never the App's: finish then gives the new head datalyze/rules and a review.
     - name: Claude (an @datalyze request)
+      id: claude_tag
       if: steps.prepare.outputs.run == 'true' && steps.prepare.outputs.mode == 'tag'
       uses: anthropics/claude-code-action@v1
       env:
@@ -164,6 +165,47 @@ runs:
         CLAUDE_OUTCOME: ${{ steps.prepare.outputs.mode == 'agent' && (steps.check.outputs.retry == 'true' && steps.claude2.outcome || steps.claude.outcome) || '' }}
         CLAUDE_EXECUTION_FILE: ${{ steps.check.outputs.retry == 'true' && steps.claude2.outputs.execution_file || steps.claude.outputs.execution_file }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action finish
+
+    # The run's record (RUN-LOG.md): every step it went through, ok or not, from the step log and both
+    # passes' transcripts. On the run's summary, under the pull request's report, and in the two artifacts.
+    - name: The run's record
+      if: always() && steps.prepare.outputs.run == 'true'
+      shell: bash
+      env:
+        DATALYZE_KEY: ${{ inputs.datalyze_key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        # Only so the record can scrub it from the transcripts: Claude worked with this token.
+        DATALYZE_APP_TOKEN: ${{ steps.prepare.outputs.token }}
+        DATALYZE_ACTION_REF: ${{ github.action_ref }}
+        CLAUDE_OUTCOME_1: ${{ steps.prepare.outputs.mode == 'tag' && steps.claude_tag.outcome || steps.claude.outcome }}
+        CLAUDE_OUTCOME_2: ${{ steps.claude2.outcome }}
+        CLAUDE_EXECUTION_FILE_1: ${{ steps.prepare.outputs.mode == 'tag' && steps.claude_tag.outputs.execution_file || steps.claude.outputs.execution_file }}
+        CLAUDE_EXECUTION_FILE_2: ${{ steps.claude2.outputs.execution_file }}
+      run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action record
+
+    # run.json alone: the site reads it to show how the run went, so it's small and kept the longest GitHub allows.
+    - name: Keep the run's record
+      if: always() && steps.prepare.outputs.run == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: datalyze-run-record
+        path: ${{ runner.temp }}/datalyze-run-record
+        if-no-files-found: ignore
+        overwrite: true
+        retention-days: 90
+
+    # Everything the record was built from (scrubbed of secrets), for whoever debugs the run.
+    - name: Keep the run's log
+      if: always() && steps.prepare.outputs.run == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: datalyze-run
+        path: ${{ runner.temp }}/datalyze-run
+        if-no-files-found: ignore
+        overwrite: true
+        include-hidden-files: true
+        retention-days: 30
 
     # An audit's snapshot (and Amplitude's counts) for the next runs, kept even when the audit failed part-way.
     - name: Save the Datalyze run cache
