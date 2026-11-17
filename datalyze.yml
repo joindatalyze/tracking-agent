@@ -36,7 +36,7 @@ on:
     inputs:
       job:
         type: choice
-        options: [audit, implement, review, check]
+        options: [audit, implement, review, check, verify_landing]
       pr:
         description: Pull request number (review, implement)
         required: false

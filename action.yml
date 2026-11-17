@@ -227,6 +227,15 @@ runs:
         include-hidden-files: true
         retention-days: 30
 
+    # Recheck landing from the Verification screen: no model, only the read keys.
+    - name: Recheck landing
+      if: steps.prepare.outputs.job == 'verify_landing'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        DATALYZE_KEY: ${{ inputs.datalyze_key }}
+      run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action verify-landing
+
     # On the merge that brings this workflow in, with no plan yet, it starts the first audit instead.
     - name: Sheet
       if: steps.prepare.outputs.job == 'sheet'
