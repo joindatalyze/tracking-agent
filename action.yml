@@ -90,7 +90,7 @@ runs:
     # The audit's data pull installs DuckDB (a native binary the bundle can't carry) on first use;
     # this keeps it between runs. The version must match src/snapshot/pull/duckdb-runtime (a test checks).
     - name: DuckDB for the audit
-      if: steps.prepare.outputs.run == 'true' && steps.prepare.outputs.job == 'audit'
+      if: steps.prepare.outputs.run == 'true' && steps.prepare.outputs.job == 'audit' && steps.prepare.outputs.mode == 'agent'
       continue-on-error: true
       uses: actions/cache@v4
       with:
@@ -98,6 +98,7 @@ runs:
         key: datalyze-duckdb-1.5.6-r.2-${{ runner.os }}-${{ runner.arch }}
 
     # Its failure doesn't end the job: check gives Claude a second pass, and finish publishes what there is.
+    # A publish run (mode `publish`: an audit an earlier run finished but couldn't push) has no Claude steps.
     - name: Claude
       id: claude
       if: steps.prepare.outputs.run == 'true' && steps.prepare.outputs.mode == 'agent'
