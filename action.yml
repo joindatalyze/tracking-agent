@@ -122,6 +122,8 @@ runs:
       shell: bash
       env:
         CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+        # The second pass writes to the same file: check keeps this one aside for the record, and reads why the pass stopped.
+        CLAUDE_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
       run: node "$GITHUB_ACTION_PATH/bin/datalyze.js" action check
 
     - name: Claude (second pass)
